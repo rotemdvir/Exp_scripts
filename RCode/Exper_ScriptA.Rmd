@@ -1,0 +1,358 @@
+---
+title: "Experimental Data: Description and Analysis"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(psych)  ###needed for describe()
+library(car)    ###needed for Anova()
+library(stargazer)  ###needed for Reg tables
+library(xtable)     ###needed for ANOVA tables
+options(xtable.floating=FALSE)
+options(xtable.timestampt="")
+library(foreign)
+library(ggplot2)
+library(gplots)
+library(MASS)
+library(Hmisc)
+library(ggthemes)
+library(plyr)
+library(devtools)
+library(gridExtra)
+library(dplyr)
+library(reshape2)
+library(coefplot)
+library(ggpubr)
+library(FSA)  # for interaction plots
+
+# Set Randomizer
+set.seed(2020)
+
+```
+
+This document details multiple procedures for an exploration and analysis of experimental data. In this version of the file, I use data collected in a survey experiment conducted on June 2019. The sample consists of 519 respondents. The material included a vignette describing an international conflict, then I described two potential policy options to address the conflict, and asked respondents for their preferred alternative. 
+
+```{r, include = FALSE}
+
+# Set Working Directory
+setwd("~/Dropbox/TAMU/Extra_Projects/Git_edits/Exp_scripts")
+
+# Upload Data: file must in the working directory
+MyData <- read.csv("Example_Data.csv", header=TRUE, sep = ",", strip.white = T, na.strings = "")
+
+# Set conditions IV's as factorial
+MyData$trt1<-as.factor(MyData$trt1)
+MyData$trt2<-as.factor(MyData$trt2)
+
+# Create cont. DV
+MyData$dv_edit <- ifelse(MyData$dv_binary == 0, -1, 1)
+MyData$dv_cont <- MyData$dv_edit * MyData$binary_strgth
+
+# Setting the contrasts for the sum of squares
+options(contrasts=c("contr.helmert","contr.poly"))
+  
+#checking if the above command worked properly
+options()
+
+```
+
+### Data description
+The first set of procedures includes presenting the data (distribution of main variables). There are two dependent variables: binary and continuous one. 
+
+```{r fig.align="center", fig.width=7, fig.height=5, echo = FALSE, warning = FALSE}
+# DV binary
+
+df1 <- MyData %>%
+  group_by(dv_binary) %>%
+  summarise(counts = n())
+
+binary_plot <- ggplot(df1, aes(dv_binary, counts)) + 
+  geom_bar(fill = "#0073C2FF", stat = "identity", width = 0.5) +
+  geom_text(aes(label = counts), vjust = -0.3) + 
+  xlab("Selected option 0/1") +
+  theme_bw()
+
+# DV CONT
+
+cont_plot <- ggplot(MyData, aes(x = dv_cont)) +
+  geom_histogram(aes(y = ..density..), colour="black", fill="white", binwidth = 1) +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  xlab("DV Cont.Values") +
+  theme_bw()
+
+ggarrange(binary_plot, cont_plot,
+          nrow = 1, ncol = 2)
+
+# IVs: 
+# The experimental treatments are binary varibles, and can be presented like binary_plot above
+
+# co-vars:
+# All cont./categorical varibles can be presented like cont_plot above
+```
+
+There are two treatments in this design, below are the sizes of groups for each treatment.
+
+```{r, include = T}
+
+table(MyData$trt1)
+table(MyData$trt2)
+```
+
+### Means
+In the following, I present various options to compute and present the mean response for the dependent variable, separated by both conditions for each treatment.
+
+```{r fig.align="center", fig.width=6, fig.height=4, echo = FALSE}
+
+# Extract the means for DV based on either condition and plot
+
+mean_1 <- tapply(MyData$dv_binary, MyData$trt1, mean)
+print("Mean values of DV: treatment 1, two conditions")
+print(mean_1)
+
+plotmeans(dv_binary ~ trt1, data = MyData, connect = FALSE, ylim = c(0.3,1), 
+          xlab = "Treatment 1", ylab = "DV probability")
+
+```
+
+\vspace{2em}
+
+```{r fig.align="center", fig.width=6, fig.height=4, echo=FALSE}
+
+
+mean_2 <- tapply(MyData$dv_binary, MyData$trt2, mean)
+print("Mean values of DV: treatment 2, two conditions")
+print(mean_2)
+
+plotmeans(dv_binary ~ trt2, data = MyData, connect = FALSE, 
+          xlab = "Treatment 2", ylab = "DV probability")
+
+
+```
+
+
+### Analysis
+I run different models to analyze the data. First, I use an ANOVA model for the binary dependent variable. The code below includes both treatments and their interaction (no co-variates). Then, the 'model.tables' command presents various options for the mean values of the dependent variable: the grand mean of the entire sample; the means by treatment groups (including the size of each group); and finally, the means of the DV based on all four conditions of both treatments (including the size of each group).
+
+```{r, echo = FALSE}
+##  ANOVA Analysis Type I ##
+
+# ANOVA model
+summary(m3 <- aov(dv_binary ~ trt1 + trt2 + trt1 * trt2, data = MyData))
+
+# Code for ANOVA model that includes the treatments as well as the covariates
+# summary(m3a <- aov(dv_binary ~ trt1 + trt2 + trt1 * trt2 + Gender + Race + Partisanship, data = MyData))
+
+# Table of means for DV based on either condition
+model.tables(m3, "means")
+
+
+```
+
+\vspace{2em}
+When using an ANOVA model, it is useful to test its main assumptions: first, I plot the *residuals versus fits plot* to check the homogeneity of variances. In the plot below, it appears that there is no relationship between the residuals and fitted values. I also employ the Levene test. The results show that we can reject the null, meaning that the variance across groups is statistically significant. Second, we check the normality assumption of the residuals. 
+
+```{r fig.align="center", fig.width=6, fig.height=3, echo=FALSE}
+
+# Checking ANOVA assumptions
+
+# The homogeneity of variance assumption: we can plot with or without a reference line.
+plot(m3, 1)
+# plot(m3$fitted,m3$res,xlab="Fitted",ylab="Residuals")   #plot without a reference line
+leveneTest(dv_binary ~ trt1*trt2, data = MyData)
+
+# Normality Assumption: we can plot with/without a reference line
+plot(m3, 2)
+#qqnorm(m3$res)  #plot without a reference line
+
+```
+
+\break
+
+#### Regression Analysis
+
+Next, I run regression models for both DVs. A probit model for the binary variable and OLS for the continuous dependent variable. Below, I present the results of all models in a single table. Models 1 \& 3 include only the experimental treatments (baseline models); models 2 \& 4 also include all the co-variates.
+
+```{r results = 'asis', message=F, echo=FALSE}
+
+# Probit regression models
+m1 <- glm(dv_binary ~ trt1 + trt2 + trt1 * trt2, data = MyData, family=binomial(link="probit"))
+m2 <- glm(dv_binary ~ trt1 + trt2 + trt1 * trt2 + Gender + Race + Partisanship, data = MyData, family=binomial(link="probit"))
+
+# Linear regression models
+m1a <- lm(dv_cont ~ trt1 + trt2 + trt1 * trt2, data = MyData)
+m2a <- lm(dv_cont ~ trt1 + trt2 + trt1 * trt2 + Gender + Race + Partisanship, data = MyData)
+
+# Regression table 
+stargazer(m1, m2, m1a, m2a, type = "latex", header = FALSE, 
+          title = "Regression Results", 
+          dep.var.labels = c("Binary DV", "Cont. DV"),
+          covariate.labels = c("Treatment1", "Treatment2",
+                               "Gender", "Race", "Partisanship",
+                               "Treat1 x Treat2"),
+          notes.align = "l",
+          omit.stat = c("LL","ser", "f"), no.space = TRUE) 
+
+```
+
+\break
+
+#### Visualizing the results
+There are many ways to visualize the results of the analysis. First, I depict coefficient plots of the main models (binary and continuous DV, including all co-vars, models 2 and 4 in the table above).
+
+```{r fig.align="center", fig.width=7, fig.height=4, echo=FALSE}
+
+coef1 <- coefplot(m2, intercept=FALSE, title = "Binary DV Model", decreasing = T,
+                  color="red", ylab = "", xlab = "Coefficient Value", pointSize = 2, zeroLWD = 1,
+                  outerCI = 1.984, innerCI = 1.984, zeroType = 3, zeroColor = "black", sort="natural",
+                  newNames=c(trt11="Treatment_1", trt21 = "Treatment_2"))#
+coef1 <- coef1 + theme_pubr()
+
+coef2 <- coefplot(m2a, intercept=FALSE, title = "Cont. DV Model", decreasing = T,
+                  color="blue", ylab = "", xlab = "Coefficient Value", pointSize = 2, zeroLWD = 1,
+                  outerCI = 1.984, innerCI = 1.984, zeroType = 3, zeroColor = "black", sort="natural",
+                  newNames=c(trt11="Treatment_1", trt21 = "Treatment_2"))#
+coef2 <- coef2 + theme_pubr()
+
+ggarrange(coef1, coef2,
+          nrow = 1, ncol = 2)
+```
+
+\vspace{3em}
+Presenting the model results using coefficient plots is useful for showing the effects of separate factors/variables (main effects in ANOVA models). We can use interaction plots to show more clearly how the conditional effect of both treatments affect the dependent variable. Below is the code for a plot that show the values of a binary DV when considering the conditional relations of both (binary) independent variables. The plot clearly shows the interaction effect between both treatments.
+
+
+```{r fig.align="center", fig.width=4, fig.height=3, echo=FALSE}
+
+mm = Summarize(dv_binary ~ trt1 + trt2, data = MyData)
+mm$se = mm$sd / sqrt(mm$n)
+mm$se = signif(mm$se, digits=3)
+pd = position_dodge(.2)
+
+ggplot(mm, aes(x = trt1, y = mean, color = trt2)) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width=.2, size=0.7, position=pd) +
+  geom_point(shape=20, size=3, position=pd) +
+  xlab("Treatment 1") + ylab("Probability for DV") +
+  ggtitle("Interaction plot") +
+  theme_bw() + labs(color = "Treatment 2")
+
+# The command below is simpler, more useful for continous independent variables
+# interaction.plot(MyData$trt1, MyData$trt2, MyData$dv_binary)
+
+```
+
+There are additional ways to display the same results. The code below uses grouped barplot to distinguish among the treatments and show the interaction.
+
+```{r fig.align="center", fig.width=5, fig.height=3, echo=FALSE}
+
+MyData2 <- describeBy(MyData$dv_binary,list(MyData$trt1,MyData$trt2), mat=TRUE,digits=2)
+
+names(MyData2)[names(MyData2) == 'group1'] = 'Treatment1'
+names(MyData2)[names(MyData2) == 'group2'] = 'Treatment2'
+
+levels(MyData2$Treatment1)[levels(MyData2$Treatment1)=='0'] = 'V0'
+levels(MyData2$Treatment1)[levels(MyData2$Treatment1)=='1'] = 'V1'
+
+levels(MyData2$Treatment2)[levels(MyData2$Treatment2)=='0'] = 'Value0'
+levels(MyData2$Treatment2)[levels(MyData2$Treatment2)=='1'] = 'Value1'
+
+MyData2$se <- MyData2$sd/sqrt(MyData2$n)
+
+limits = aes(ymax = mean + se, ymin=mean - se)
+dodge = position_dodge(width=0.9)
+apatheme=theme_bw()+
+  theme(panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        panel.border=element_blank(),
+        axis.line=element_line(),
+        text=element_text(family='Times'))
+
+plot.grp <- ggplot(MyData2, aes(x = Treatment2, y = mean, fill = Treatment1))+
+  geom_bar(stat='identity', position=dodge)+
+  geom_errorbar(limits, position=dodge, width=0.1)+
+  apatheme + scale_y_continuous(expand=c(0,0)) +
+  ylab('Probability of DV') +
+  ggtitle("Interaction of Treatments")
+plot.grp
+
+```
+
+\vspace{3em}
+The final plot offers a different way to display the mean values of the DV based on the different treatments. I create density plots that are based on bootstrapped sample in order to improve the accuracy of the results. 
+
+```{r fig.align="center", fig.width=6, fig.height=3, echo=FALSE, warning = FALSE}
+
+# Plotting means with bootstrapping 
+# The code below creates density plots of the mean results of the DV based on 2500 bootstraps
+# To adjust the code: replace the DV and both conditions of the treatments
+# Requires a binary IV - treatment, DV can be cont. or binary
+
+B=2500
+n =nrow(MyData)
+c1a.sample <- with(MyData, matrix(sample(dv_binary[trt1 == 0], size = n[1]*B, replace = T), B, n[1]))
+c1a.means <- apply(c1a.sample, 1, mean)
+bt1 <- ggplot(data.frame(MeanChoice = c1a.means),aes(x=MeanChoice)) + ylim(0,35) + xlim(0.3,0.9) +
+  geom_density(color="blue", fill="blue", alpha=0.3)
+
+c1b.sample <- with(MyData, matrix(sample(dv_binary[trt1 == 1], size = n[1]*B, replace = T), B, n[1]))
+c1b.means <- apply(c1b.sample, 1, mean)
+bt2 <- ggplot(data.frame(MeanChoice = c1b.means),aes(x=MeanChoice)) + ylim(0,35) + xlim(0.3,0.9) +
+  geom_density(color="red", fill="red", alpha=0.3)
+
+c2a.sample <- with(MyData, matrix(sample(dv_binary[trt2 == 0], size = n[1]*B, replace = T), B, n[1]))
+c2a.means <- apply(c2a.sample, 1, mean)
+bt3 <- ggplot(data.frame(MeanChoice = c2a.means),aes(x=MeanChoice)) + ylim(0,35) + xlim(0.3,0.9) +
+  geom_density(color="purple", fill="purple", alpha=0.3)
+
+c2b.sample <- with(MyData, matrix(sample(dv_binary[trt2 == 1], size = n[1]*B, replace = T), B, n[1]))
+c2b.means <- apply(c2b.sample, 1, mean)
+bt4 <- ggplot(data.frame(MeanChoice = c2b.means),aes(x=MeanChoice)) + ylim(0,35) + xlim(0.3,1) +
+  geom_density(color="green", fill="green", alpha=0.3)
+
+df <- data.frame(x=c1a.means, y=c1b.means)
+df.m <- melt(df)
+names(df.m)[names(df.m)=="variable"] <- "Treatment_A"
+df.m$Treatment_A <- as.character(df.m$Treatment_A)
+df.m$Treatment_A[df.m$Treatment_A=="x"] <- "Value0"
+df.m$Treatment_A[df.m$Treatment_A=="y"] <- "Value1"
+plot1 <- ggplot(df.m) + geom_freqpoly(aes(x=value, y=..density.., colour=Treatment_A)) +
+  labs(x='Means for Treatment A') + theme_bw()
+
+
+df1 <- data.frame(x=c2a.means, y=c2b.means)
+df1.m <- melt(df1)
+names(df1.m)[names(df1.m)=="variable"] <- "Treatment_B"
+df1.m$Treatment_B <- as.character(df1.m$Treatment_B)
+df1.m$Treatment_B[df1.m$Treatment_B=="x"] <- "Value0"
+df1.m$Treatment_B[df1.m$Treatment_B=="y"] <- "Value1"
+plot2 <- ggplot(df1.m) + geom_freqpoly(aes(x=value, y=..density.., colour=Treatment_B)) +
+  labs(x='Means for Treatment B') + theme_bw()
+
+
+pp <- ggplot(df.m, aes(x=value)) + geom_density(aes(group=Treatment_A, colour=Treatment_A, fill=Treatment_A), alpha=0.3) +
+  labs(x='Means for Treatment A') + theme_bw() + ylim(0,35) 
+
+pp1 <- ggplot(df1.m, aes(x=value)) + geom_density(aes(group=Treatment_B, colour=Treatment_B, fill=Treatment_B), alpha=0.3) +
+  labs(x='Means for Treatment B') + theme_bw() + ylim(0,35)
+
+pp.join <- ggarrange(pp, pp1, legend = "top",
+          nrow = 1, ncol = 2)
+
+annotate_figure(pp.join,
+                top =  text_grob("DV Means, by treatment (bootstrapped sample)", color = "black", face = "bold", size = 14))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
